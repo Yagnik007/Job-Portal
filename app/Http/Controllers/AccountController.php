@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Intervention\Image\ImageManager;
+use Intervention\Image\Drivers\Gd\Driver;
 
 class AccountController extends Controller
 {
@@ -133,5 +135,63 @@ class AccountController extends Controller
             ]);
         }
     }
+
+    public function updateProfilePic(Request $request)
+    {
+        // Fetch the authenticated user's ID
+        $id = Auth::user()->id;
+
+        // Validate the incoming request with stricter rules
+        $validator = Validator::make($request->all(), [
+            'image' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048', // Accept only certain types and limit size to 2MB
+        ]);
+
+        // Check if the validation passes
+        if ($validator->fails()) {
+            // Return a JSON response if validation fails
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors()
+            ]);
+        }
+
+        try {
+            // Process the image
+            $image = $request->file('image');
+            $ext = $image->getClientOriginalExtension();
+            $imageName = $id . '-' . time() . '.' . $ext;
+
+            // Attempt to move the uploaded file to the desired directory
+            $image->move(public_path('profile_pic/'), $imageName);
+
+            //Create a small thumbnail
+            $sourcePath = public_path('profile_pic/'.$imageName);
+            $manager = new ImageManager(Driver::class);
+            $image = $manager->read($sourcePath);
+
+            $image->cover(150,150);
+            $image->toPng()->save(public_path('profile_pic/thumb/'.$imageName));
+
+            // Update the user's profile picture in the database
+            User::where('id', $id)->update(['image' => $imageName]);
+
+            session()->flash('success', 'Profile picture updated successfully.');
+
+            // Return success response
+            return response()->json([
+                'status' => true,
+                'message' => 'Profile picture updated successfully!',
+                'image' => asset('profile_pic/' . $imageName), // Optional: return the image path
+            ]);
+        } catch (\Exception $e) {
+            // Handle any errors during the file move or database update
+            return response()->json([
+                'status' => false,
+                'message' => 'An error occurred while updating the profile picture.',
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
 
 }
